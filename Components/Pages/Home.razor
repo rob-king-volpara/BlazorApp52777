@@ -1,0 +1,157 @@
+﻿@page "/"
+@inject NavigationManager _navigationManager
+@attribute [RequireAntiforgeryToken]
+@layout FaultyLayout
+
+<div class="login-form">
+    <EditForm EditContext="_editContext" OnValidSubmit="SignIn" FormName="LoginForm">
+        <DataAnnotationsValidator />
+        <InputText Name="Model.Email" Placeholder="Email address" ClassNames="email-input" @bind-Value="Model.Email"></InputText>
+        @if (_customers?.Any() == true)
+        {
+            <div class="tenant-selector">
+                <InputRadioGroup @bind-Value="@Model.Customer">
+                    @foreach (TenantResponse customer in _customers)
+                    {
+                        <label>
+                            <InputRadio Value="@customer.Name" />
+                            <span>@customer.Name</span>
+                        </label>
+                    }
+                </InputRadioGroup>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(Model.Customer))
+        {
+            <InputText hidden @bind-Value="Model.Customer"></InputText>
+        }
+        <button class="login-button" type="submit">Sign In</button>
+        <div class="error-message">
+            <ValidationSummary />
+        </div>
+    </EditForm>
+</div>
+
+@code {
+    [CascadingParameter]
+    public HttpContext HttpContext { get; set; }
+
+    [Parameter]
+    public string TenantRoute { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string ReturnUrl { get; set; } = "";
+
+    [Parameter]
+    [SupplyParameterFromForm]
+    public LoginModel Model { get; set; }
+
+    private EditContext _editContext;
+    private ValidationMessageStore _messageStore;
+    private IEnumerable<TenantResponse> _customers = Enumerable.Empty<TenantResponse>();
+    private string _redirectTo = "";
+
+    protected override void OnInitialized()
+    {
+        Model ??= new();
+        _editContext = new(Model);
+        _editContext.OnValidationRequested += CheckForm;
+        _messageStore = new(_editContext);
+    }
+
+    private void CheckForm(object sender, ValidationRequestedEventArgs args)
+    {
+        _messageStore?.Clear();
+
+        // Step 1 - check if the email is valid
+        if (!ValidateEmail()) return;
+
+        // Step 2 - lookup the email and get assigned customers
+        User user = new() { Email = Model.Email };
+        if (user == null)
+        {
+            _messageStore?.Add(() => Model.Email, "Email address could not be resolved");
+            return;
+        }
+
+        // Step 3 - get the customers for the email
+        _customers = [ new TenantResponse("Customer01", "OIDC"), new TenantResponse("Customer02", "OIDC") ];
+
+        if (TenantRoute.HasValue())
+        {
+            _customers = _customers.Where(x => x.Name.ToLower() == TenantRoute.ToLower());
+        }
+
+        // Step 4 - if there is only ONE customer, preselect it
+        if (_customers.Count() == 1)
+        {
+            Model.Customer = _customers.First().Name;
+        }
+
+        // Step 5 - if the customer list doesn't have the selected tenant
+        if (!_customers.Any())
+        {
+            Model.Customer = TenantRoute;
+            ValidateTenantAvailability();
+        }
+    }
+
+    public void SignIn()
+    {
+        _navigationManager.NavigateTo($"api/authentication/login?tenant={Model.Customer}&email={Model.Email}&returnUrl={ReturnUrl}", true);
+    }
+
+    public bool ValidateEmail()
+    {
+        string emailRegex = "^(?=.{1,256})(?=.{1,64}@.{1,255}$)[A-Za-z0-9._%-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,4}$";
+
+        if (!Regex.IsMatch(Model.Email, emailRegex))
+        {
+            _messageStore?.Add(() => Model.Email, "Email address is not valid");
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool ValidateTenantAvailability()
+    {
+        if (!_customers.Any(x => x.Name.ToLowerInvariant() == Model.Customer.ToLowerInvariant()))
+        {
+            _messageStore?.Add(() => Model.Email, "This customer is not assigned");
+            return false;
+        }
+
+        return true;
+    }
+
+    public class LoginModel
+    {
+        [Required]
+        public string Email { get; set; }
+
+        [Required]
+        public string Customer { get; set; }
+    }
+
+    public record TenantResponse(string Name, string AuthMethod);
+
+    public class CustomerInfo
+    {
+        public string Id { get; set; }
+        public string Identifier { get; set; }
+        public string ChallengeScheme { get; set; }
+    }
+
+    public class User
+    {
+        public int UserId { get; private set; }
+        public string AADUserName { get; set; }
+        public string Email { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public bool IsSSO { get; set; }
+        public bool IsActive { get; set; }
+    }
+}

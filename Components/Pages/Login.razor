@@ -1,0 +1,21 @@
+﻿@page "/api/authentication/login"
+
+<h3>Login</h3>
+
+<div>@Tenant</div>
+<div>@Email</div>
+<div>@ReturnUrl</div>
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string Tenant { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string Email { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string ReturnUrl { get; set; }
+}
